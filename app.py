@@ -1,11 +1,11 @@
 import os
-import openai
+from openai import OpenAI
 import streamlit as st
 import json
 import subprocess
 
-# Load OpenAI key from environment
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 SYSTEM_PROMPT = """You are a marketing assistant.
 Always respond in JSON:
@@ -17,7 +17,7 @@ Allowed action types: ["scrape_url", "post_tweet"]
 """
 
 def call_llm(user_input):
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -25,7 +25,7 @@ def call_llm(user_input):
         ],
         max_tokens=500
     )
-    return response.choices[0].message["content"]
+    return response.choices[0].message.content
 
 st.title("🤖 AI Marketer")
 
