@@ -79,3 +79,16 @@ node_modules/
 
 # Yarn Integrity file
 .yarn-integrity
+
+# Firebase and sensitive configuration files
+firebase-config.txt
+**/firebase-config.txt
+update-env.sh
+**/update-env.sh
+configure.sh
+**/configure.sh
+
+# Any files containing API keys or secrets
+*-config.txt
+*-secrets.*
+*-keys.*
