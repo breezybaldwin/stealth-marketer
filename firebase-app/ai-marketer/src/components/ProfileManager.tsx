@@ -55,11 +55,11 @@ export default function ProfileManager({ onBack }: ProfileManagerProps = {}) {
     setProfile(prev => ({
       ...prev,
       personal: {
-        ...prev.personal,
         user: {
           ...prev.personal?.user,
           [field]: value
-        }
+        },
+        business: prev.personal?.business || {}
       }
     }));
   };
@@ -68,11 +68,11 @@ export default function ProfileManager({ onBack }: ProfileManagerProps = {}) {
     setProfile(prev => ({
       ...prev,
       company: {
-        ...prev.company,
         user: {
           ...prev.company?.user,
           [field]: value
-        }
+        },
+        business: prev.company?.business || {}
       }
     }));
   };
@@ -81,7 +81,7 @@ export default function ProfileManager({ onBack }: ProfileManagerProps = {}) {
     setProfile(prev => ({
       ...prev,
       company: {
-        ...prev.company,
+        user: prev.company?.user || {},
         business: {
           ...prev.company?.business,
           [field]: value

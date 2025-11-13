@@ -17,7 +17,7 @@ export default function ChatInterface() {
   const [contextType, setContextType] = useState<ContextType>(DEFAULTS.CONTEXT_TYPE);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [showProfileManager, setShowProfileManager] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(DEFAULTS.SIDEBAR_COLLAPSED);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(DEFAULTS.SIDEBAR_COLLAPSED);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const { user, logout } = useAuth();
@@ -177,12 +177,12 @@ export default function ChatInterface() {
           onConversationSelect={handleConversationSelect}
           onNewConversation={handleNewConversation}
           isCollapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
           contextType={contextType}
           onContextChange={handleContextSwitch}
           onShowProfileManager={() => setShowProfileManager(true)}
           onLogout={logout}
-          userEmail={user?.email}
+          userEmail={user?.email || undefined}
         />
         <div className="flex-1 flex flex-col">
           <ProfileManager onBack={() => setShowProfileManager(false)} />
@@ -199,12 +199,12 @@ export default function ChatInterface() {
         onConversationSelect={handleConversationSelect}
         onNewConversation={handleNewConversation}
         isCollapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
         contextType={contextType}
         onContextChange={handleContextSwitch}
         onShowProfileManager={() => setShowProfileManager(true)}
         onLogout={logout}
-        userEmail={user?.email}
+        userEmail={user?.email || undefined}
       />
       <div className="flex-1 flex flex-col">
       {/* Messages */}
