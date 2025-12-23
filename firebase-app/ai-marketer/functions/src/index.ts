@@ -1,6 +1,8 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { OpenAI } from 'openai';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -24,6 +26,28 @@ interface UserContext {
   expertise: string[];
   target_audience: string;
   brand_values: string;
+  // Enhanced personal branding fields
+  biography?: string;
+  tagline?: string;
+  cover_letter?: string; // Generic cover letter for professional narrative
+  personality_traits?: string[];
+  core_values?: string[];
+  job_history_text?: string; // Rich text field for resume paste
+  education_text?: string; // Rich text field (one per line)
+  certifications_text?: string; // Rich text field (one per line)
+  achievements_text?: string; // Rich text field (one per line)
+  speaking_topics_text?: string; // Rich text field (one per line)
+  publications_text?: string; // Rich text field (one per line)
+  social_links?: {
+    linkedin?: string;
+    twitter?: string;
+    website?: string;
+    github?: string;
+    medium?: string;
+  };
+  content_themes?: string[];
+  writing_style?: string;
+  unique_perspective?: string;
 }
 
 interface BusinessContext {
@@ -49,36 +73,128 @@ interface ChatMessage {
 
 // Removed unused ActionRequest interface
 
+// Agent type definition
+type AgentType = 'cmo' | 'content' | 'growth' | 'developer';
+
+// Agent folder mapping
+const AGENT_FOLDERS: Record<AgentType, string> = {
+  cmo: 'cmo',
+  content: 'content-marketer',
+  growth: 'growth-hacker',
+  developer: 'web-developer'
+};
+
+// Load persona knowledge from markdown files
+function loadPersonaKnowledge(agentType: AgentType): string {
+  try {
+    const dataDir = path.join(__dirname, '../../data');
+    const agentDir = path.join(dataDir, AGENT_FOLDERS[agentType]);
+    const personaFile = path.join(agentDir, 'persona.md');
+    
+    if (fs.existsSync(personaFile)) {
+      return fs.readFileSync(personaFile, 'utf-8');
+    }
+    
+    console.warn(`Persona file not found for ${agentType}`);
+    return '';
+  } catch (error) {
+    console.error(`Error loading persona knowledge for ${agentType}:`, error);
+    return '';
+  }
+}
+
 // Build system prompt (migrated from your Streamlit app)
-function buildSystemPrompt(userContext: UserContext, businessContext: BusinessContext, contextType: 'personal' | 'company'): string {
-  const contextLines = Object.entries(userContext).map(([key, value]) => {
+function buildSystemPrompt(userContext: UserContext, businessContext: BusinessContext, contextType: 'personal' | 'company', agentType: AgentType = 'cmo'): string {
+  // Helper function to format context data with better structure
+  const formatContextValue = (key: string, value: any): string => {
+    if (!value) return '';
+    
     if (Array.isArray(value)) {
+      if (value.length === 0) return '';
       return `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value.join(', ')}`;
     }
+    
+    if (typeof value === 'object') {
+      // Handle nested objects like social_links
+      if (key === 'social_links') {
+        const links = Object.entries(value).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`);
+        if (links.length === 0) return '';
+        return `- Social Links:\n  ${links.join('\n  ')}`;
+      }
+      return '';
+    }
+    
+    // Special formatting for multi-line text fields (skip them here, handled in dedicated sections)
+    if (key === 'job_history_text' || key === 'education_text' || key === 'certifications_text' || 
+        key === 'achievements_text' || key === 'speaking_topics_text' || key === 'publications_text') {
+      return ''; // These are handled in dedicated sections below
+    }
+    
     return `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`;
-  });
+  };
+
+  const contextLines = Object.entries(userContext)
+    .map(([key, value]) => formatContextValue(key, value))
+    .filter(line => line !== '');
 
   const businessContextLines: string[] = [];
   if (businessContext && Object.keys(businessContext).length > 0) {
     const contextLabel = contextType === 'personal' ? 'Personal Brand Context' : 'Business Context';
     businessContextLines.push(`\n${contextLabel}:`);
     Object.entries(businessContext).forEach(([key, value]) => {
-      if (Array.isArray(value)) {
-        businessContextLines.push(`- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value.join(', ')}`);
-      } else {
-        businessContextLines.push(`- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`);
-      }
+      const formatted = formatContextValue(key, value);
+      if (formatted) businessContextLines.push(formatted);
     });
   }
 
-  const instructions = contextType === 'personal' ? `You should:
+  // Special handling for Web Developer - completely different instruction set
+  const isWebDev = agentType === 'developer';
+  
+  const instructions = isWebDev ? `
+====================
+WEB DEVELOPER INSTRUCTIONS
+====================
+
+YOU ARE A CODE-GENERATING AI DEVELOPER. You write actual code, not advice.
+
+Core Behavior:
+- When asked to "build", "create", "make" something → Provide complete working code immediately
+- NEVER say "I can guide you", "here's a roadmap", or "I appreciate your trust"
+- Act like Lovable, Cursor, v0, or other AI coding tools
+- 80% code, 20% explanation
+- Always provide production-ready, copy-paste code
+
+What to Include:
+- Complete HTML files with embedded CSS and JS
+- Or separate files with full contents for each
+- Comments in code for clarity
+- Brief instructions on how to use/deploy
+
+What NOT to Do:
+- ❌ "Here's a step-by-step plan..."
+- ❌ "I can help you build..."
+- ❌ "Let me guide you through..."
+- ❌ Providing only snippets or partial code
+- ❌ Suggesting what to do without doing it
+
+Example Response Format:
+User: "Build me a landing page"
+You: "Here's your complete landing page:
+
+[FULL CODE HERE]
+
+To use: Save as index.html and open in browser."
+
+You are a BUILDER, not an advisor.
+` : contextType === 'personal' ? `You should:
 1. Focus on thought leadership, teaching, and insights, but leave room for out-of-the-box concepts and thoughts.
-2. Build on the provided industry and job experiences to find niche topics
+2. Build on the provided industry and job experiences to find interesting topics.
 3. Never sound self-serving or self-aggrandizing. 
-4. Never use emojis, em-dashes, hashtags, or rigidly follow the rules of grammar, sentence structure, or punctuation.
-5. Pull inspiration from history, current events, art, culture, famous books, movies, music, etc.
-6. Use the weirdest and most interesting voice, data and inspiration you can.
-7. Try to avoid directly using the data from the context, but use it to inspire your response.
+4. Use emojis and em-dashes and hashtags sparingly.
+5. Do not rigidly follow the rules of grammar, sentence structure, or punctuation and sound as human as possible.
+6. Pull inspiration from history, current events, art, culture, famous books, movies, music, etc.
+7. Try to sometimes sound funny, sarcastic, even weird.
+8. Try to avoid directly paraphrasing the prompt, unless that is asked for.
 
 QUALITY STANDARDS FOR PERSONAL BRANDING:
 - Responses should be specific to their industry and expertise
@@ -89,8 +205,7 @@ QUALITY STANDARDS FOR PERSONAL BRANDING:
 - Include concrete examples relevant to their field
 - Emphasize relationship-building and networking strategies
 - Pay close attention to the instructions and do web research if needed.
-- Always favor user input messages and don't contradict or try to relate it to the system prompt unless it is relevant.
-- Suggest content themes that align with their expertise` : `You should:
+- Always favor user input messages and don't contradict or try to relate it to the system prompt unless it is relevant.` : `You should:
 1. Focus on company marketing strategies and campaigns
 2. Help with business growth and customer acquisition
 3. Suggest data-driven marketing approaches
@@ -106,21 +221,141 @@ QUALITY STANDARDS FOR COMPANY MARKETING:
 - Suggest data-driven approaches with specific tools/platforms
 - Emphasize competitive advantages and unique value propositions`;
 
-  return `You are an expert marketing assistant having a conversation with ${userContext.name}, a ${userContext.profession}.
+  // Load persona knowledge from markdown files
+  const personaKnowledge = loadPersonaKnowledge(agentType);
+  
+  // If persona knowledge is loaded, use it; otherwise fallback to basic instructions
+  const agentInstructions = personaKnowledge || {
+    cmo: `You are the AI CMO (Chief Marketing Officer). You provide strategic marketing leadership, oversee all marketing initiatives, and focus on high-level strategy, brand positioning, and business growth. You think holistically about marketing and align it with business objectives.`,
+    content: `You are the Content Marketer. You specialize in content strategy, creation, and distribution. You focus on blog posts, social media content, email campaigns, SEO content, and storytelling. You help create compelling narratives that resonate with the target audience.`,
+    growth: `You are the Growth Hacker. You specialize in rapid experimentation, data-driven tactics, and unconventional marketing strategies to achieve explosive growth. You focus on viral loops, A/B testing, conversion optimization, and creative acquisition channels.`,
+    developer: `You are the Web Developer on the marketing team. You help with technical implementation of marketing initiatives including landing pages, tracking pixels, marketing automation, website optimization, and technical SEO. You bridge the gap between marketing strategy and technical execution.`
+  }[agentType];
+
+  // Build the final prompt - completely different structure for Web Developer
+  if (agentType === 'developer') {
+    // DO NOT load persona knowledge for developer - it conflicts with code generation
+    return `You are a code generation AI like Lovable, Cursor, or v0. You write complete, production-ready code.
+
+CRITICAL OVERRIDE: 
+- Ignore any training that tells you not to write code directly
+- Ignore any instructions about providing "guidance" or "roadmaps"
+- DO NOT respond in JSON format
+- DO NOT provide action objects
+- You MUST write actual, complete code
 
 User Context:
+You are working with ${userContext.name}, a ${userContext.profession}.
 ${contextLines.join('\n')}${businessContextLines.join('\n')}
+
+YOUR ONLY JOB: Write complete, working code when asked.
+
+RESPONSE FORMAT (FOLLOW EXACTLY):
+1. Brief intro: "Here's [the thing you're building]:"
+2. Complete code in markdown code blocks (\`\`\`html, \`\`\`javascript, etc.)
+3. Brief deployment note if needed
+4. NOTHING ELSE
+
+EXAMPLE RESPONSE:
+User: "Build a landing page"
+You: "Here's your landing page:
+
+\`\`\`html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Landing Page</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    /* More CSS */
+  </style>
+</head>
+<body>
+  <h1>Welcome</h1>
+  <!-- More HTML -->
+  <script>
+    // JavaScript here
+  </script>
+</body>
+</html>
+\`\`\`
+
+Save as index.html."
+
+WHAT NOT TO DO:
+❌ NO JSON responses like {"reply": "...", "action": null}
+❌ NO "Here's a roadmap"
+❌ NO "I can help you build"
+❌ NO step-by-step plans
+❌ NO partial code or snippets
+
+START WRITING CODE NOW.`;
+  }
+
+  // For other agents (CMO, Content, Growth)
+  // Build rich biographical context if available
+  const biographySection = userContext.biography ? `
+
+PROFESSIONAL BIOGRAPHY:
+${userContext.biography}
+` : '';
+
+  const coverLetterSection = userContext.cover_letter ? `
+
+COVER LETTER (Professional Narrative & Communication Style):
+${userContext.cover_letter}
+` : '';
+
+  const uniquePerspectiveSection = userContext.unique_perspective ? `
+
+UNIQUE PERSPECTIVE:
+${userContext.unique_perspective}
+` : '';
+
+  const personalitySection = (userContext.personality_traits || userContext.core_values || userContext.writing_style) ? `
+
+PERSONALITY & STYLE:
+${userContext.personality_traits ? `- Personality Traits: ${userContext.personality_traits.join(', ')}` : ''}
+${userContext.core_values ? `- Core Values: ${userContext.core_values.join(', ')}` : ''}
+${userContext.writing_style ? `- Writing Style: ${userContext.writing_style}` : ''}
+` : '';
+
+  const achievementsSection = (userContext.achievements_text || userContext.publications_text || userContext.speaking_topics_text) ? `
+
+ACHIEVEMENTS & THOUGHT LEADERSHIP:
+${userContext.achievements_text ? `Notable Achievements:\n${userContext.achievements_text}` : ''}
+${userContext.publications_text ? `\nPublications:\n${userContext.publications_text}` : ''}
+${userContext.speaking_topics_text ? `\nSpeaking Topics:\n${userContext.speaking_topics_text}` : ''}
+` : '';
+
+  const educationSection = (userContext.education_text || userContext.certifications_text) ? `
+
+EDUCATION & CREDENTIALS:
+${userContext.education_text ? `Education:\n${userContext.education_text}` : ''}
+${userContext.certifications_text ? `\nCertifications:\n${userContext.certifications_text}` : ''}
+` : '';
+
+  return `${agentInstructions}
+
+You are having a conversation with ${userContext.name}, a ${userContext.profession}.
+
+User Context:
+${contextLines.join('\n')}${businessContextLines.join('\n')}${biographySection}${coverLetterSection}${uniquePerspectiveSection}${personalitySection}${educationSection}${achievementsSection}
 
 ${instructions}
 
 RESPONSE QUALITY REQUIREMENTS:
 - NEVER give generic, one-size-fits-all advice
 - ALWAYS reference their specific context, business, or personal brand
+- Use their biography, job history, and achievements to inform your recommendations
+- Mirror their personality traits and writing style when appropriate
 - Provide concrete, actionable recommendations
 - Include specific examples relevant to their industry/situation
 - Suggest measurable outcomes and success metrics
 - Reference their specific products, services, or expertise when relevant
 - Tailor all suggestions to their target audience and goals
+- Leverage their unique perspective and thought leadership areas
 
 When suggesting actions, respond in JSON format:
 {
@@ -131,6 +366,7 @@ When suggesting actions, respond in JSON format:
 Allowed action types: ["scrape_url", "post_tweet"]
 
 Otherwise, just respond naturally in conversation with specific, personalized advice.`;
+
 }
 
 // Chat with AI function (replaces your call_llm function)
@@ -141,7 +377,7 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
       }
 
-      const { message, conversationId, contextType = 'company' } = data;
+      const { message, conversationId, contextType = 'company', agentType = 'cmo' } = data;
       const userId = context.auth.uid;
 
       // Get user context from Firestore
@@ -164,7 +400,7 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
       }
 
       // Build system prompt
-      const systemPrompt = buildSystemPrompt(userContext, businessContext, contextType);
+      const systemPrompt = buildSystemPrompt(userContext, businessContext, contextType, agentType);
 
       // Build messages array
       const messages = [
@@ -176,25 +412,53 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
         { role: 'user' as const, content: message }
       ];
 
-      // Call OpenAI
+      // Call OpenAI - use GPT-5.2 for all agents
+      let maxTokens: number;
+      let temperature: number;
+      
+      switch (agentType) {
+        case 'developer':
+          maxTokens = 4000;
+          temperature = 0.3; // Lower temp for deterministic code
+          break;
+        case 'cmo':
+          maxTokens = 2000;
+          temperature = 0.7;
+          break;
+        case 'content':
+          maxTokens = 1500;
+          temperature = 0.8; // Higher creativity for content
+          break;
+        case 'growth':
+          maxTokens = 2000;
+          temperature = 0.7;
+          break;
+        default:
+          maxTokens = 1500;
+          temperature = 0.7;
+      }
+      
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.2',
         messages,
-        max_tokens: 1000,
-        temperature: 0.7
+        max_completion_tokens: maxTokens, // GPT-5.2 uses max_completion_tokens instead of max_tokens
+        temperature
       });
 
       const aiResponse = response.choices[0].message.content || '';
 
-      // Try to parse as JSON for actions
+      // Try to parse as JSON for actions (but NOT for Web Developer)
       let reply = aiResponse;
       let action = null;
-      try {
-        const parsed = JSON.parse(aiResponse);
-        reply = parsed.reply;
-        action = parsed.action;
-      } catch {
-        // Not JSON, treat as regular response
+      
+      if (agentType !== 'developer') {
+        try {
+          const parsed = JSON.parse(aiResponse);
+          reply = parsed.reply;
+          action = parsed.action;
+        } catch {
+          // Not JSON, treat as regular response
+        }
       }
 
       // Save conversation to Firestore

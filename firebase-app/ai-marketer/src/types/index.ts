@@ -22,6 +22,28 @@ export interface PersonalUserProfile {
   voice?: string;
   preferences?: string;
   brand_values?: string;
+  // Enhanced personal branding fields
+  biography?: string;
+  tagline?: string;
+  cover_letter?: string; // Generic cover letter for professional narrative
+  personality_traits?: string[];
+  core_values?: string[];
+  job_history_text?: string; // Rich text field for resume paste
+  education_text?: string; // Rich text field (one per line)
+  certifications_text?: string; // Rich text field (one per line)
+  achievements_text?: string; // Rich text field (one per line)
+  speaking_topics_text?: string; // Rich text field (one per line)
+  publications_text?: string; // Rich text field (one per line)
+  social_links?: {
+    linkedin?: string;
+    twitter?: string;
+    website?: string;
+    github?: string;
+    medium?: string;
+  };
+  content_themes?: string[];
+  writing_style?: string;
+  unique_perspective?: string;
 }
 
 export interface CompanyUserProfile {
@@ -66,6 +88,9 @@ export interface Conversation {
 // Context types
 export type ContextType = 'personal' | 'company';
 
+// Agent types
+export type AgentType = 'cmo' | 'content' | 'growth' | 'developer';
+
 // Component prop types
 export interface SidebarProps {
   currentConversationId: string | null;
@@ -75,9 +100,12 @@ export interface SidebarProps {
   onToggleCollapse: () => void;
   contextType: ContextType;
   onContextChange: (context: ContextType) => void;
+  agentType: AgentType;
+  onAgentChange: (agent: AgentType) => void;
   onShowProfileManager: () => void;
   onLogout: () => void;
   userEmail?: string;
+  isMobile?: boolean;
 }
 
 export interface MessageBubbleProps {

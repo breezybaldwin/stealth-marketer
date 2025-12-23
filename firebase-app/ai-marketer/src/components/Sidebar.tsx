@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
-import { Conversation, SidebarProps, ContextType } from '@/types';
-import { COLLECTIONS, CONTEXT_LABELS, DEFAULTS } from '@/constants';
+import { Conversation, SidebarProps, ContextType, AgentType } from '@/types';
+import { COLLECTIONS, CONTEXT_LABELS, DEFAULTS, AGENT_INFO, AGENT_TYPES } from '@/constants';
 
 export default function Sidebar({ 
   currentConversationId, 
@@ -15,9 +15,12 @@ export default function Sidebar({
   onToggleCollapse,
   contextType,
   onContextChange,
+  agentType,
+  onAgentChange,
   onShowProfileManager,
   onLogout,
-  userEmail
+  userEmail,
+  isMobile = false
 }: SidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,7 +102,7 @@ export default function Sidebar({
 
   if (isCollapsed) {
     return (
-      <div className="w-12 bg-zinc-900 border-r border-zinc-700 flex flex-col">
+      <div className={`${isMobile ? 'hidden' : 'w-12'} bg-zinc-900 border-r border-zinc-700 flex flex-col`}>
         {/* Toggle button */}
         <div className="p-3 border-b border-zinc-700">
           <button
@@ -177,7 +180,7 @@ export default function Sidebar({
   }
 
   return (
-    <div className="w-64 bg-zinc-900 border-r border-zinc-700 flex flex-col">
+    <div className={`${isMobile ? 'fixed inset-y-0 left-0 z-50 w-64' : 'w-64'} bg-zinc-900 border-r border-zinc-700 flex flex-col`}>
       {/* Header */}
       <div className="p-4 border-b border-zinc-700">
         <div className="flex items-center justify-between mb-4">
@@ -190,7 +193,7 @@ export default function Sidebar({
             </svg>
           </button>
           <div className="text-center">
-            <h1 className="text-sm font-semibold text-white">🤖 AI Marketing Assistant</h1>
+            <h1 className="text-sm font-semibold text-white">🤖 AI CMO</h1>
           </div>
           <div className="w-5"></div> {/* Spacer for centering */}
         </div>
@@ -206,6 +209,28 @@ export default function Sidebar({
             <option value="company">{CONTEXT_LABELS.company}</option>
             <option value="personal">{CONTEXT_LABELS.personal}</option>
           </select>
+        </div>
+
+        {/* Agent Selector */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-zinc-400 mb-2">Team Member:</label>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(AGENT_INFO).map(([key, info]) => (
+              <button
+                key={key}
+                onClick={() => onAgentChange(key as AgentType)}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg border-2 transition-all duration-200 ${
+                  agentType === key
+                    ? `border-zinc-400 bg-gradient-to-br ${info.color} bg-opacity-20`
+                    : 'border-zinc-700 bg-zinc-800 hover:border-zinc-600'
+                }`}
+                title={info.description}
+              >
+                <span className="text-2xl mb-1">{info.emoji}</span>
+                <span className="text-xs text-white font-medium text-center leading-tight">{info.name.split(' ')[info.name.split(' ').length - 1]}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <button

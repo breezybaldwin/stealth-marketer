@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Marketing Assistant",
-  description: "Your personal AI-powered marketing assistant with dual RAG contexts",
+  title: "AI CMO",
+  description: "Your personal AI-powered Chief Marketing Officer with dual RAG contexts",
 };
 
 export default function RootLayout({

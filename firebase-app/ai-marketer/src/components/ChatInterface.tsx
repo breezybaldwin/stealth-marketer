@@ -7,18 +7,36 @@ import { functions, db } from '@/lib/firebase';
 import MessageBubble from './MessageBubble';
 import ProfileManager from './ProfileManager';
 import Sidebar from './Sidebar';
-import { Message, ActionType, ContextType } from '@/types';
-import { DEFAULTS, COLLECTIONS } from '@/constants';
+import { Message, ActionType, ContextType, AgentType } from '@/types';
+import { DEFAULTS, COLLECTIONS, AGENT_INFO } from '@/constants';
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [contextType, setContextType] = useState<ContextType>(DEFAULTS.CONTEXT_TYPE);
+  const [agentType, setAgentType] = useState<AgentType>(DEFAULTS.AGENT_TYPE);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [showProfileManager, setShowProfileManager] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(DEFAULTS.SIDEBAR_COLLAPSED);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile screen size
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+      // Auto-collapse sidebar on mobile
+      if (window.innerWidth < 768) {
+        setSidebarCollapsed(true);
+      }
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const { user, logout } = useAuth();
 
@@ -33,6 +51,14 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
+  // Auto-resize textarea on input change
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+    }
+  }, [inputMessage]);
+
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || loading || !chatWithAI) return;
 
@@ -44,13 +70,18 @@ export default function ChatInterface() {
 
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setLoading(true);
 
     try {
       const result = await chatWithAI({
         message: inputMessage,
         conversationId,
-        contextType
+        contextType,
+        agentType
       });
 
       const data = result.data as any;
@@ -126,6 +157,12 @@ export default function ChatInterface() {
     setConversationId(null);
   };
 
+  const handleAgentChange = (newAgent: AgentType) => {
+    setAgentType(newAgent);
+    setMessages([]);
+    setConversationId(null);
+  };
+
   const handleNewConversation = () => {
     setMessages([]);
     setConversationId(null);
@@ -169,9 +206,23 @@ export default function ChatInterface() {
     }
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    setInputMessage(suggestion);
+    // Optionally, you can auto-send the message
+    // setTimeout(() => handleSendMessage(), 100);
+  };
+
   if (showProfileManager) {
     return (
-      <div className="flex h-screen bg-zinc-900">
+      <div className="flex h-screen bg-zinc-900 relative">
+        {/* Mobile overlay when sidebar is open */}
+        {isMobile && !sidebarCollapsed && (
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+            onClick={() => setSidebarCollapsed(true)}
+          />
+        )}
+        
         <Sidebar
           currentConversationId={conversationId}
           onConversationSelect={handleConversationSelect}
@@ -180,11 +231,14 @@ export default function ChatInterface() {
           onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
           contextType={contextType}
           onContextChange={handleContextSwitch}
+          agentType={agentType}
+          onAgentChange={handleAgentChange}
           onShowProfileManager={() => setShowProfileManager(true)}
           onLogout={logout}
           userEmail={user?.email || undefined}
+          isMobile={isMobile}
         />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           <ProfileManager onBack={() => setShowProfileManager(false)} />
         </div>
       </div>
@@ -193,23 +247,62 @@ export default function ChatInterface() {
 
   
   return (
-    <div className="flex h-screen bg-zinc-900">
+    <div className="flex h-screen bg-zinc-900 relative">
+      {/* Mobile overlay when sidebar is open */}
+      {isMobile && !sidebarCollapsed && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          onClick={() => setSidebarCollapsed(true)}
+        />
+      )}
+      
       <Sidebar
         currentConversationId={conversationId}
         onConversationSelect={handleConversationSelect}
         onNewConversation={handleNewConversation}
         isCollapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+        onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
         contextType={contextType}
         onContextChange={handleContextSwitch}
+        agentType={agentType}
+        onAgentChange={handleAgentChange}
         onShowProfileManager={() => setShowProfileManager(true)}
         onLogout={logout}
         userEmail={user?.email || undefined}
+        isMobile={isMobile}
       />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
+      {/* Mobile Header */}
+      {isMobile && sidebarCollapsed && (
+        <div className="bg-zinc-900 border-b border-zinc-700 p-3 flex items-center justify-between md:hidden">
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            className="text-zinc-400 hover:text-white transition-colors duration-200"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="text-center">
+            <h1 className="text-sm font-semibold text-white">{AGENT_INFO[agentType].emoji} {AGENT_INFO[agentType].name}</h1>
+            <p className="text-xs text-zinc-400">
+              {contextType === 'company' ? '🏢 Company Marketing' : '👤 Personal Branding'}
+            </p>
+          </div>
+          <button
+            onClick={handleNewConversation}
+            className="text-zinc-400 hover:text-white transition-colors duration-200"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        </div>
+      )}
+      
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto px-2 sm:px-4 py-4 sm:py-8">
           {messages.length === 0 && (
             <div className="text-center text-zinc-400 mt-16">
               <div className="mb-8">
@@ -219,7 +312,7 @@ export default function ChatInterface() {
                   </svg>
                 </div>
                 <h2 className="text-2xl font-semibold text-white mb-2">
-                  Welcome to your AI Marketing Assistant
+                  Welcome to your {AGENT_INFO[agentType].name}
                 </h2>
                 <p className="text-lg text-zinc-300 mb-4">
                   Currently in <span className="font-semibold text-white">
@@ -232,22 +325,46 @@ export default function ChatInterface() {
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
-                <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
+                <button 
+                  onClick={() => handleSuggestionClick(contextType === 'company' 
+                    ? "Help me develop a content strategy for my company. What types of content should I create and how often should I publish?"
+                    : "Help me develop a personal branding content strategy. What should I share to build my thought leadership?"
+                  )}
+                  className="bg-zinc-800 hover:bg-zinc-750 rounded-lg p-4 border border-zinc-700 hover:border-zinc-600 transition-all duration-200 text-left cursor-pointer transform hover:scale-105"
+                >
                   <h3 className="text-white font-medium mb-2">💡 Content Strategy</h3>
                   <p className="text-zinc-400 text-sm">Get ideas for blog posts, social media content, and thought leadership pieces</p>
-                </div>
-                <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
+                </button>
+                <button 
+                  onClick={() => handleSuggestionClick(contextType === 'company'
+                    ? "I want to plan a marketing campaign. Can you help me outline the key components and timeline?"
+                    : "Help me plan a personal branding campaign to increase my visibility in my industry."
+                  )}
+                  className="bg-zinc-800 hover:bg-zinc-750 rounded-lg p-4 border border-zinc-700 hover:border-zinc-600 transition-all duration-200 text-left cursor-pointer transform hover:scale-105"
+                >
                   <h3 className="text-white font-medium mb-2">📊 Campaign Planning</h3>
                   <p className="text-zinc-400 text-sm">Plan marketing campaigns, set goals, and define success metrics</p>
-                </div>
-                <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
+                </button>
+                <button 
+                  onClick={() => handleSuggestionClick(contextType === 'company'
+                    ? "Help me analyze my target audience. What questions should I answer to create detailed buyer personas?"
+                    : "Help me understand who my target audience should be for my personal brand and how to reach them."
+                  )}
+                  className="bg-zinc-800 hover:bg-zinc-750 rounded-lg p-4 border border-zinc-700 hover:border-zinc-600 transition-all duration-200 text-left cursor-pointer transform hover:scale-105"
+                >
                   <h3 className="text-white font-medium mb-2">🎯 Audience Analysis</h3>
                   <p className="text-zinc-400 text-sm">Understand your target audience and create buyer personas</p>
-                </div>
-                <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
+                </button>
+                <button 
+                  onClick={() => handleSuggestionClick(contextType === 'company'
+                    ? "What are some effective growth strategies I can implement to scale my business?"
+                    : "What strategies can I use to grow my personal brand and expand my professional network?"
+                  )}
+                  className="bg-zinc-800 hover:bg-zinc-750 rounded-lg p-4 border border-zinc-700 hover:border-zinc-600 transition-all duration-200 text-left cursor-pointer transform hover:scale-105"
+                >
                   <h3 className="text-white font-medium mb-2">🚀 Growth Strategies</h3>
                   <p className="text-zinc-400 text-sm">Develop strategies to grow your business or personal brand</p>
-                </div>
+                </button>
               </div>
             </div>
           )}
@@ -283,37 +400,38 @@ export default function ChatInterface() {
       </div>
 
       {/* Input */}
-      <div className="bg-zinc-900 px-4 py-4">
+      <div className="bg-zinc-900 px-2 sm:px-4 py-3 sm:py-4">
         <div className="max-w-3xl mx-auto">
-          <div className="relative flex items-center bg-zinc-800 rounded-full border border-zinc-700 shadow-lg">
+          <div className="relative flex items-center bg-zinc-800 rounded-[28px] border border-zinc-700 shadow-lg py-1">
             <textarea
+              ref={textareaRef}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Message AI Marketing Assistant..."
-              className="flex-1 resize-none bg-transparent px-6 py-4 text-white placeholder-zinc-400 focus:outline-none disabled:opacity-50 text-base leading-6"
+              placeholder={`Message ${AGENT_INFO[agentType].name}...`}
+              className="flex-1 resize-none bg-transparent px-4 sm:px-6 py-2.5 sm:py-3 text-white placeholder-zinc-400 focus:outline-none disabled:opacity-50 text-sm sm:text-base leading-6 overflow-y-auto"
               rows={1}
               disabled={loading}
               style={{
-                minHeight: '32px',
+                minHeight: '44px',
                 maxHeight: '200px'
               }}
             />
-            <div className="flex items-center pr-3">
+            <div className="flex items-center pr-2 sm:pr-3">
               <button
                 onClick={handleSendMessage}
                 disabled={loading || !inputMessage.trim()}
-                className="bg-white hover:bg-zinc-100 disabled:bg-zinc-600 disabled:cursor-not-allowed text-zinc-900 disabled:text-white w-10 h-10 rounded-full transition-all duration-200 shadow-sm flex items-center justify-center"
+                className="bg-white hover:bg-zinc-100 disabled:bg-zinc-600 disabled:cursor-not-allowed text-zinc-900 disabled:text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-all duration-200 shadow-sm flex items-center justify-center flex-shrink-0"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
                 </svg>
               </button>
             </div>
           </div>
-          <div className="flex items-center justify-center mt-3">
-            <p className="text-xs text-zinc-500">
-              AI can make mistakes. Consider checking important information.
+          <div className="flex items-center justify-center mt-2 sm:mt-3">
+            <p className="text-xs text-zinc-500 px-2 text-center">
+              {AGENT_INFO[agentType].name} can make mistakes. Consider checking important information.
             </p>
           </div>
         </div>
