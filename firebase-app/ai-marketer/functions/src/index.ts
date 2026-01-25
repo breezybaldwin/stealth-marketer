@@ -3,14 +3,21 @@ import * as admin from 'firebase-admin';
 import { OpenAI } from 'openai';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+
+// Load environment variables for local development
+dotenv.config();
 
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();
 
 // Initialize OpenAI
+// Support both Firebase config (production) and env vars (local emulator)
 const openai = new OpenAI({
-  apiKey: functions.config().openai.key,
+  apiKey: process.env.OPENAI_API_KEY || functions.config().openai?.key,
 });
 
 
@@ -68,7 +75,7 @@ interface BusinessContext {
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
-  timestamp: admin.firestore.Timestamp;
+  timestamp: string;
 }
 
 // Removed unused ActionRequest interface
@@ -336,18 +343,34 @@ ${userContext.education_text ? `Education:\n${userContext.education_text}` : ''}
 ${userContext.certifications_text ? `\nCertifications:\n${userContext.certifications_text}` : ''}
 ` : '';
 
-  return `${agentInstructions}
+  const jobHistorySection = userContext.job_history_text ? `
+
+WORK EXPERIENCE & RESUME:
+${userContext.job_history_text}
+` : '';
+
+  return `IMPORTANT SYSTEM CONTEXT - READ FIRST:
+==================================================
+YOU HAVE FULL ACCESS TO ${userContext.name}'s PROFILE DATA.
+All information below was loaded from their app settings automatically.
+DO NOT tell them you cannot see their profile.
+DO NOT ask them to paste information that is already provided below.
+==================================================
+
+${agentInstructions}
 
 You are having a conversation with ${userContext.name}, a ${userContext.profession}.
 
-User Context:
-${contextLines.join('\n')}${businessContextLines.join('\n')}${biographySection}${coverLetterSection}${uniquePerspectiveSection}${personalitySection}${educationSection}${achievementsSection}
+USER'S COMPLETE PROFILE DATA (Already Loaded - Do Not Ask For This):
+${contextLines.join('\n')}${businessContextLines.join('\n')}${biographySection}${coverLetterSection}${uniquePerspectiveSection}${personalitySection}${jobHistorySection}${educationSection}${achievementsSection}
 
 ${instructions}
 
 RESPONSE QUALITY REQUIREMENTS:
-- NEVER give generic, one-size-fits-all advice
-- ALWAYS reference their specific context, business, or personal brand
+- YOU HAVE ACCESS TO THE USER'S COMPLETE PROFILE including their resume, job history, education, and all personal/company information
+- NEVER ask the user to provide information that's already in their profile
+- NEVER say you can't access their settings or profile information
+- ALWAYS reference their specific context, business, or personal brand from the profile data above
 - Use their biography, job history, and achievements to inform your recommendations
 - Mirror their personality traits and writing style when appropriate
 - Provide concrete, actionable recommendations
@@ -370,7 +393,10 @@ Otherwise, just respond naturally in conversation with specific, personalized ad
 }
 
 // Chat with AI function (replaces your call_llm function)
-export const chatWithAI = functions.https.onCall(async (data, context) => {
+export const chatWithAI = functions.runWith({
+  timeoutSeconds: 540, // 9 minutes - max allowed for HTTP functions
+  memory: '1GB'
+}).https.onCall(async (data, context) => {
     try {
       // Check authentication
       if (!context.auth) {
@@ -390,6 +416,14 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
       const userContext = userData.contexts?.[contextType]?.user || {};
       const businessContext = userData.contexts?.[contextType]?.business || {};
 
+      // Log what we're getting for debugging
+      console.log('User context loaded:', {
+        name: userContext.name,
+        profession: userContext.profession,
+        hasJobHistory: !!userContext.job_history_text,
+        jobHistoryLength: userContext.job_history_text?.length || 0
+      });
+
       // Get conversation history
       let conversationHistory: ChatMessage[] = [];
       if (conversationId) {
@@ -401,6 +435,9 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
 
       // Build system prompt
       const systemPrompt = buildSystemPrompt(userContext, businessContext, contextType, agentType);
+      
+      // Log system prompt length for debugging
+      console.log('System prompt length:', systemPrompt.length, 'characters');
 
       // Build messages array
       const messages = [
@@ -418,23 +455,23 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
       
       switch (agentType) {
         case 'developer':
-          maxTokens = 4000;
+          maxTokens = 8000; // Increased for reasoning + output
           temperature = 0.3; // Lower temp for deterministic code
           break;
         case 'cmo':
-          maxTokens = 2000;
+          maxTokens = 4000; // Increased for reasoning + output
           temperature = 0.7;
           break;
         case 'content':
-          maxTokens = 1500;
+          maxTokens = 3000; // Increased for reasoning + output
           temperature = 0.8; // Higher creativity for content
           break;
         case 'growth':
-          maxTokens = 2000;
+          maxTokens = 4000; // Increased for reasoning + output
           temperature = 0.7;
           break;
         default:
-          maxTokens = 1500;
+          maxTokens = 3000; // Increased for reasoning + output
           temperature = 0.7;
       }
       
@@ -465,23 +502,29 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
       const newMessage: ChatMessage = {
         role: 'user',
         content: message,
-        timestamp: admin.firestore.Timestamp.now()
+        timestamp: new Date().toISOString()
       };
 
       const aiMessage: ChatMessage = {
         role: 'assistant',
         content: reply,
-        timestamp: admin.firestore.Timestamp.now()
+        timestamp: new Date().toISOString()
       };
 
       let finalConversationId = conversationId;
 
       if (conversationId) {
-        // Update existing conversation
-        await db.collection('conversations').doc(conversationId).update({
-          messages: admin.firestore.FieldValue.arrayUnion(newMessage, aiMessage),
-          updatedAt: admin.firestore.Timestamp.now()
-        });
+        // Update existing conversation - get current messages and append new ones
+        const conversationRef = db.collection('conversations').doc(conversationId);
+        const conversationDoc = await conversationRef.get();
+        
+        if (conversationDoc.exists) {
+          const currentMessages = conversationDoc.data()?.messages || [];
+          await conversationRef.update({
+            messages: [...currentMessages, newMessage, aiMessage],
+            updatedAt: new Date().toISOString()
+          });
+        }
       } else {
         // Create new conversation
         const newConversationRef = db.collection('conversations').doc();
@@ -489,8 +532,8 @@ export const chatWithAI = functions.https.onCall(async (data, context) => {
           userId,
           contextType,
           messages: [newMessage, aiMessage],
-          createdAt: admin.firestore.Timestamp.now(),
-          updatedAt: admin.firestore.Timestamp.now()
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         });
         finalConversationId = newConversationRef.id;
       }
@@ -525,7 +568,7 @@ export const executeAction = functions.https.onCall(async (data, context) => {
         type: actionType,
         params,
         status: 'processing',
-        createdAt: admin.firestore.Timestamp.now()
+        createdAt: new Date().toISOString()
       });
 
       let result = '';
@@ -547,7 +590,7 @@ export const executeAction = functions.https.onCall(async (data, context) => {
         await actionRef.update({
           status: 'completed',
           result,
-          completedAt: admin.firestore.Timestamp.now()
+          completedAt: new Date().toISOString()
         });
 
       } catch (actionError) {
@@ -557,7 +600,7 @@ export const executeAction = functions.https.onCall(async (data, context) => {
         await actionRef.update({
           status: 'failed',
           error,
-          completedAt: admin.firestore.Timestamp.now()
+          completedAt: new Date().toISOString()
         });
       }
 
@@ -574,17 +617,114 @@ export const executeAction = functions.https.onCall(async (data, context) => {
   }
 });
 
-// Helper function to scrape URL (simplified version of your scraping logic)
+// Helper function to scrape URL
 async function scrapeUrl(url: string): Promise<string> {
-  // For now, return a placeholder - you can implement full Playwright scraping later
-  // This would require setting up Playwright in Cloud Functions environment
-  return `Scraped content from ${url} - [Placeholder: Full Playwright implementation needed]`;
+  try {
+    // Validate URL
+    const urlObj = new URL(url);
+    if (!['http:', 'https:'].includes(urlObj.protocol)) {
+      throw new Error('Invalid URL protocol. Only HTTP and HTTPS are supported.');
+    }
+
+    // Fetch the page
+    const response = await axios.get(url, {
+      timeout: 10000,
+      maxRedirects: 5,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; AI-Marketer-Bot/1.0)'
+      }
+    });
+
+    // Parse HTML
+    const $ = cheerio.load(response.data);
+
+    // Remove script, style, and other non-content elements
+    $('script, style, nav, footer, header, iframe, noscript').remove();
+
+    // Extract text content
+    const title = $('title').text().trim();
+    const metaDescription = $('meta[name="description"]').attr('content') || '';
+    
+    // Get main content
+    let mainContent = '';
+    
+    // Try common content selectors
+    const contentSelectors = [
+      'article',
+      'main',
+      '[role="main"]',
+      '.content',
+      '.post-content',
+      '.article-content',
+      '#content',
+      'body'
+    ];
+
+    for (const selector of contentSelectors) {
+      const element = $(selector).first();
+      if (element.length) {
+        mainContent = element.text();
+        break;
+      }
+    }
+
+    // Clean up whitespace
+    mainContent = mainContent
+      .replace(/\s+/g, ' ')
+      .replace(/\n+/g, '\n')
+      .trim();
+
+    // Limit content length
+    const maxLength = 5000;
+    if (mainContent.length > maxLength) {
+      mainContent = mainContent.substring(0, maxLength) + '...';
+    }
+
+    // Extract headings for structure
+    const headings: string[] = [];
+    $('h1, h2, h3').each((_, elem) => {
+      const text = $(elem).text().trim();
+      if (text) headings.push(text);
+    });
+
+    // Build result
+    let result = `Title: ${title}\n\n`;
+    
+    if (metaDescription) {
+      result += `Description: ${metaDescription}\n\n`;
+    }
+    
+    if (headings.length > 0) {
+      result += `Key Sections:\n${headings.slice(0, 10).map(h => `- ${h}`).join('\n')}\n\n`;
+    }
+    
+    result += `Content:\n${mainContent}`;
+
+    return result;
+
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      if (error.code === 'ENOTFOUND') {
+        throw new Error('Website not found. Please check the URL.');
+      }
+      if (error.code === 'ETIMEDOUT') {
+        throw new Error('Request timed out. The website took too long to respond.');
+      }
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        throw new Error('Access denied. The website blocked our request.');
+      }
+      if (error.response?.status === 404) {
+        throw new Error('Page not found (404).');
+      }
+    }
+    throw new Error(`Failed to scrape URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Helper function to post tweet (placeholder)
 async function postTweet(params: any): Promise<string> {
-  // Placeholder for Twitter API integration
-  return `Tweet posted: ${params.text} - [Placeholder: Twitter API integration needed]`;
+  // Twitter posting is disabled - return error message
+  throw new Error('Twitter posting feature is currently disabled. I can help you draft tweets instead.');
 }
 
 // Initialize user context function
@@ -630,12 +770,13 @@ export const initializeUserContext = functions.https.onCall(async (data, context
       }
 
       // Create user document with custom contexts
+      const timestamp = new Date().toISOString();
       await db.collection('users').doc(userId).set({
         email: context.auth.token.email,
         displayName: context.auth.token.name || personalContext?.name || companyContext?.name || 'User',
         contexts,
-        createdAt: admin.firestore.Timestamp.now(),
-        updatedAt: admin.firestore.Timestamp.now()
+        createdAt: timestamp,
+        updatedAt: timestamp
       });
 
       return { success: true };

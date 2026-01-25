@@ -44,13 +44,23 @@ export default function Sidebar({
         const messages = data.messages || [];
         const firstMessage = messages[0]?.content || 'New conversation';
         
+        // Handle both Timestamp objects and ISO strings
+        let updatedAt = new Date();
+        if (data.updatedAt) {
+          if (typeof data.updatedAt === 'string') {
+            updatedAt = new Date(data.updatedAt);
+          } else if (data.updatedAt.toDate) {
+            updatedAt = data.updatedAt.toDate();
+          }
+        }
+        
         conversationData.push({
           id: doc.id,
           title: firstMessage.length > DEFAULTS.CONVERSATION_TITLE_MAX_LENGTH 
             ? firstMessage.substring(0, DEFAULTS.CONVERSATION_TITLE_MAX_LENGTH) + '...' 
             : firstMessage,
           contextType: data.contextType || DEFAULTS.CONTEXT_TYPE,
-          updatedAt: data.updatedAt?.toDate() || new Date(),
+          updatedAt,
           messageCount: messages.length
         });
       });

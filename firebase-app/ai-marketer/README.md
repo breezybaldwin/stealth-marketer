@@ -189,19 +189,38 @@ firebase deploy
 ## 🛠️ Development
 
 ### Local Development with Emulators
+
+**Important:** The emulators support data persistence so you don't lose your data between restarts!
+
 ```bash
-# Start all Firebase emulators
+# Start emulators with persistent data (RECOMMENDED)
+./start-emulators.sh
+
+# OR start without persistence (fresh database each time)
 firebase emulators:start
 
-# In another terminal
+# In another terminal, start the Next.js dev server
 npm run dev
 ```
+
+**Data Persistence:**
+- Emulator data is saved to `.emulator-data/` directory
+- Data persists between emulator restarts
+- Auth users, Firestore data, and all emulator state are preserved
+- To reset to a fresh state, delete the `.emulator-data/` directory
+
+**Emulator UI:**
+- Access at `http://localhost:4000`
+- View Auth users, Firestore data, and Functions logs
+- Test and debug your app in a safe sandbox environment
 
 ### Cloud Functions Development
 ```bash
 cd functions
 npm run build:watch  # Auto-rebuild on changes
 ```
+
+**Note:** After rebuilding functions, you need to restart the emulators to pick up the changes.
 
 ### Adding New Actions
 1. Add action type to Cloud Functions (`functions/src/index.ts`)

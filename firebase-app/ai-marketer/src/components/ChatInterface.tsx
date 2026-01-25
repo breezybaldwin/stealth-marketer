@@ -69,6 +69,7 @@ export default function ChatInterface() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const sentMessage = inputMessage;
     setInputMessage('');
     // Reset textarea height
     if (textareaRef.current) {
@@ -78,7 +79,7 @@ export default function ChatInterface() {
 
     try {
       const result = await chatWithAI({
-        message: inputMessage,
+        message: sentMessage,
         conversationId,
         contextType,
         agentType
@@ -98,11 +99,12 @@ export default function ChatInterface() {
       };
 
       setMessages(prev => [...prev, aiMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending message:', error);
+      
       const errorMessage: Message = {
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry, I encountered an error: ${error?.message || 'Unknown error'}. Please try again.`,
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -183,12 +185,24 @@ export default function ChatInterface() {
         const data = conversationDoc.data();
         const conversationMessages = data.messages || [];
         
-        setMessages(conversationMessages.map((msg: any) => ({
-          role: msg.role,
-          content: msg.content,
-          timestamp: msg.timestamp?.toDate() || new Date(),
-          action: msg.action
-        })));
+        setMessages(conversationMessages.map((msg: any) => {
+          // Handle both Timestamp objects and ISO strings
+          let timestamp = new Date();
+          if (msg.timestamp) {
+            if (typeof msg.timestamp === 'string') {
+              timestamp = new Date(msg.timestamp);
+            } else if (msg.timestamp.toDate) {
+              timestamp = msg.timestamp.toDate();
+            }
+          }
+          
+          return {
+            role: msg.role,
+            content: msg.content,
+            timestamp,
+            action: msg.action
+          };
+        }));
         
         setConversationId(selectedConversationId);
         setContextType(data.contextType || 'company');

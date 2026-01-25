@@ -15,6 +15,7 @@ interface PersonalProfile {
   expertise: string[];
   goals: string;
   target_audience: string;
+  job_history_text?: string;
 }
 
 interface CompanyProfile {
@@ -30,6 +31,8 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
   const [step, setStep] = useState(1);
   const [profileType, setProfileType] = useState<'personal' | 'company' | 'both'>('both');
   const [loading, setLoading] = useState(false);
+  const [expertiseInput, setExpertiseInput] = useState('');
+  const [productInput, setProductInput] = useState('');
   
   const [personalProfile, setPersonalProfile] = useState<PersonalProfile>({
     name: '',
@@ -37,7 +40,8 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
     industry: '',
     expertise: [],
     goals: '',
-    target_audience: ''
+    target_audience: '',
+    job_history_text: ''
   });
 
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({
@@ -68,7 +72,8 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
           preferences: 'Authentic storytelling, strategic networking',
           expertise: personalProfile.expertise,
           target_audience: personalProfile.target_audience,
-          brand_values: 'Authenticity, creativity, and innovation'
+          brand_values: 'Authenticity, creativity, and innovation',
+          job_history_text: personalProfile.job_history_text
         };
       }
       
@@ -211,8 +216,8 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
 
   if (step === 2 && (profileType === 'personal' || profileType === 'both')) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-900 py-12 px-4">
-        <div className="max-w-2xl w-full space-y-8">
+      <div className="min-h-screen h-screen overflow-y-auto flex items-start justify-center bg-zinc-900 py-12 px-4">
+        <div className="max-w-2xl w-full space-y-8 my-auto">
           <div className="text-center">
             <h2 className="text-3xl font-extrabold text-white">
               👤 Personal Profile
@@ -273,14 +278,17 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
               </div>
               <input
                 type="text"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    addExpertise(e.currentTarget.value);
-                    e.currentTarget.value = '';
+                value={expertiseInput}
+                onChange={(e) => setExpertiseInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && expertiseInput.trim()) {
+                    e.preventDefault();
+                    addExpertise(expertiseInput);
+                    setExpertiseInput('');
                   }
                 }}
                 className="block w-full bg-zinc-700 border border-zinc-600 rounded-md px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-zinc-500"
-                placeholder="Type expertise and press Enter (e.g., AI, Marketing, Leadership)"
+                placeholder="Type expertise and press Enter (e.g., Digital Marketing, AI Strategy)"
               />
             </div>
             
@@ -304,6 +312,23 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
                 className="mt-1 block w-full bg-zinc-700 border border-zinc-600 rounded-md px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-zinc-500"
                 placeholder="Who do you want to reach? (e.g., Tech professionals, Entrepreneurs)"
               />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-zinc-200 mb-1">
+                Resume / Job History
+                <span className="text-zinc-400 text-xs ml-2">(Optional - paste your full resume or work history)</span>
+              </label>
+              <textarea
+                value={personalProfile.job_history_text || ''}
+                onChange={(e) => setPersonalProfile(prev => ({ ...prev, job_history_text: e.target.value }))}
+                rows={8}
+                className="block w-full bg-zinc-700 border border-zinc-600 rounded-md px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-zinc-500 font-mono text-sm resize-y min-h-[150px] max-h-[300px]"
+                placeholder="Paste your resume or work history here...&#10;&#10;Example:&#10;Senior Software Engineer | Acme Corp | 2020-Present&#10;• Led development of AI-powered features&#10;• Managed team of 5 engineers&#10;&#10;Software Engineer | StartupCo | 2018-2020&#10;• Built scalable backend systems&#10;• Implemented CI/CD pipelines"
+              />
+              <p className="mt-2 text-xs text-zinc-400">
+                💡 This helps the AI understand your professional background and tailor content recommendations to your experience.
+              </p>
             </div>
             
             <div className="flex space-x-4">
@@ -391,14 +416,17 @@ export default function ProfileSetup({ onComplete }: ProfileSetupProps) {
               </div>
               <input
                 type="text"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    addProduct(e.currentTarget.value);
-                    e.currentTarget.value = '';
+                value={productInput}
+                onChange={(e) => setProductInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && productInput.trim()) {
+                    e.preventDefault();
+                    addProduct(productInput);
+                    setProductInput('');
                   }
                 }}
                 className="block w-full bg-zinc-700 border border-zinc-600 rounded-md px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:border-zinc-500"
-                placeholder="Type product/service and press Enter"
+                placeholder="Type product/service and press Enter (e.g., Marketing Platform, Consulting Services)"
               />
             </div>
             

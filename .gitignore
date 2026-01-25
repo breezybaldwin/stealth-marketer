@@ -92,3 +92,14 @@ configure.sh
 *-config.txt
 *-secrets.*
 *-keys.*
+
+# Chat logs (local only - not committed)
+chat-logs/
+**/chat-logs/
+
+# Firebase emulator data (local only - not committed)
+.emulator-data/
+**/.emulator-data/
+ui-debug.log
+firebase-debug.log
+firestore-debug.log
